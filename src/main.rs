@@ -71,6 +71,8 @@ impl Object {
 struct Tile {
     /// If the tile blocks anything from going through it
     blocked: bool,
+    /// If the tile has been encountered before, for Fog of War
+    explored: bool,
     /// If the tile blocks the sight of things behind it
     block_sight: bool,
 }
@@ -79,6 +81,7 @@ impl Tile {
     pub fn empty() -> Self {
         Tile {
             blocked: false,
+            explored: false,
             block_sight: false,
         }
     }
@@ -86,6 +89,7 @@ impl Tile {
     pub fn wall() -> Self {
         Tile {
             blocked: true,
+            explored: false,
             block_sight: true,
         }
     }
@@ -169,7 +173,7 @@ fn main() {
     // The list of objects with those two
     let mut objects = [player, npc];
 
-    let game = Game {
+    let mut game = Game {
         // Generate map (at this point it's not drawn on the screen)
         map: make_map(&mut objects[0]),
     };
@@ -199,7 +203,7 @@ fn main() {
             objects[0].x,
             objects[0].y
         );
-        render_all(&mut tcod, &game, &objects, fov_recompute);
+        render_all(&mut tcod, &mut game, &objects, fov_recompute);
 
         tcod.root.flush();
         // Commenting the below code out, as it waits for keypresses twice
@@ -318,7 +322,7 @@ fn make_map(player: &mut Object) -> Map {
 
 fn render_all(
     tcod: &mut Tcod,
-    game: &Game,
+    game: &mut Game,
     objects: &[Object],
     fov_recompute: bool,
 ) {
@@ -355,9 +359,24 @@ fn render_all(
                 (true, true) => COLOUR_LIGHT_WALL,
                 (true, false) => COLOUR_LIGHT_GROUND,
             };
-            tcod
-                .con
-                .set_char_background(x, y, colour, BackgroundFlag::Set);
+
+            let explored = &mut game
+                .map[x as usize][y as usize]
+                .explored;
+            if visible {
+                // Since it's visible, explore it
+                *explored = true;
+            }
+            if *explored {
+                // Show explored tiles only (any visible tile is explored
+                // already)
+                tcod.con.set_char_background(
+                    x,
+                    y,
+                    colour,
+                    BackgroundFlag::Set
+                );
+            }
         }
     }
 
