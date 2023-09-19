@@ -39,6 +39,10 @@ const BAR_WIDTH: i32 = 20;
 const PANEL_HEIGHT: i32 = 7;
 const PANEL_Y: i32 = SCREEN_HEIGHT - PANEL_HEIGHT;
 
+const MSG_X: i32 = BAR_WIDTH + 2;
+const MSG_WIDTH: i32 = SCREEN_WIDTH - BAR_WIDTH - 2;
+const MSG_HEIGHT: usize = PANEL_HEIGHT as usize - 1;
+
 struct Tcod {
     root: Root,
     con: Offscreen,
@@ -109,7 +113,7 @@ impl Object {
         ((dx.pow(2) + dy.pow(2)) as f32).sqrt()
     }
 
-    pub fn take_damage(&mut self, damage: i32) {
+    pub fn take_damage(&mut self, damage: i32, game: &mut Game) {
         // Apply damage if possible
         if let Some(fighter) = self.fighter.as_mut() {
             // Checks for damage even though attack() does so because you might
@@ -125,12 +129,12 @@ impl Object {
         if let Some(fighter) = self.fighter {
             if fighter.hp <= 0 {
                 self.alive = false;
-                fighter.on_death.callback(self);
+                fighter.on_death.callback(self, game);
             }
         }
     }
 
-    pub fn attack(&mut self, target: &mut Object) {
+    pub fn attack(&mut self, target: &mut Object, game: &mut Game) {
         // A simple formula for attack damage
         let damage = self
             .fighter
@@ -139,18 +143,24 @@ impl Object {
             .map_or(0, |f| f.defence);
         if damage > 0 {
             // Make the target take some damage
-            println!(
-                "{} attacks {} for {} hit points!",
-                self.name,
-                target.name,
-                damage
+            game.messages.add(
+                format!(
+                    "{} attacks {} for {} hit points!",
+                    self.name,
+                    target.name,
+                    damage
+                ),
+                WHITE,
             );
-            target.take_damage(damage);
+            target.take_damage(damage, game);
         } else {
-            println!(
-                "{} tries to attack {} to no effect!",
-                self.name,
-                target.name
+            game.messages.add(
+                format!(
+                    "{} tries to attack {} to no effect!",
+                    self.name,
+                    target.name
+                ),
+                WHITE,
             );
         }
     }
@@ -189,6 +199,7 @@ type Map = Vec<Vec<Tile>>;
 
 struct Game {
     map: Map,
+    messages: Messages,
 }
 
 /// A rectangle on the map, used to characterize a room.
@@ -255,13 +266,33 @@ enum DeathCallback {
 }
 
 impl DeathCallback {
-    fn callback(self, object: &mut Object) {
+    fn callback(self, object: &mut Object, game: &mut Game) {
         use DeathCallback::*;
-        let callback: fn(&mut Object) = match self {
+        let callback = match self {
             Player => player_death,
             Monster => monster_death,
         };
-        callback(object);
+        callback(object, game);
+    }
+}
+
+struct Messages {
+    messages: Vec<(String, Color)>,
+}
+
+impl Messages {
+    pub fn new() -> Self {
+        Self { messages: Vec::new() }
+    }
+
+    /// Add the new message as a tuple, with the text and the colour
+    pub fn add<T: Into<String>>(&mut self, message: T, colour: Color) {
+        self.messages.push((message.into(), colour));
+    }
+
+    /// Create a `DoubleEndedIterator` over the messages
+    pub fn iter(&self) -> impl DoubleEndedIterator<Item = &(String, Color)> {
+        self.messages.iter()
     }
 }
 
@@ -320,6 +351,7 @@ fn main() {
     let mut game = Game {
         // Generate map (at this point it's not drawn on the screen)
         map: make_map(&mut objects),
+        messages: Messages::new(),
     };
 
     // Populate the FOV map, according to the generated map
@@ -337,6 +369,12 @@ fn main() {
     // Force FOV "recompute" first time through game loop
     let mut previous_player_position = (-1, -1);
 
+    game.messages.add(
+        "Welcome, stranger! Prepare to perish in the Tombs of the
+        Ancient Kings…",
+        RED,
+    );
+
     // The main game loop
     while !tcod.root.window_closed() {
         // Clear the screen of the previous frame
@@ -350,20 +388,12 @@ fn main() {
         render_all(&mut tcod, &mut game, &objects, fov_recompute);
 
         tcod.root.flush();
-        // Commenting the below code out, as it waits for keypresses twice
-        // tcod.root.wait_for_keypress(true);
 
         // Handle keys and exit game if needed
-        // let player = &mut objects[PLAYER];
-        // previous_player_position = (player.x, player.y);
-        // let exit = handle_keys(&mut tcod, &game, player);
-        // if exit {
-        //     break;
-        // }
         previous_player_position = objects[PLAYER].pos();
         let player_action = handle_keys(
             &mut tcod,
-            &game,
+            &mut game,
             &mut objects
         );
         if player_action == PlayerAction::Exit {
@@ -375,7 +405,12 @@ fn main() {
             && player_action != PlayerAction::DidntTakeTurn {
             for id in 0..objects.len() {
                 if objects[id].ai.is_some() {
-                    ai_take_turn(id, &tcod, &game, &mut objects);
+                    ai_take_turn(
+                        id,
+                        &tcod,
+                        &mut game,
+                        &mut objects,
+                    );
                 }
             }
         }
@@ -384,7 +419,7 @@ fn main() {
 
 fn handle_keys(
     tcod: &mut Tcod,
-    game: &Game,
+    game: &mut Game,
     objects: &mut Vec<Object>,
 ) -> PlayerAction {
     use tcod::input::Key;
@@ -608,6 +643,24 @@ fn render_all(
         DARKER_RED,
     );
 
+    // Print the game messages, one line at a time
+    let mut y = MSG_HEIGHT as i32;
+    for &(ref msg, colour) in game.messages.iter().rev() {
+        let msg_height = tcod.panel.get_height_rect(
+            MSG_X,
+            y,
+            MSG_WIDTH,
+            0,
+            msg
+        );
+        y -= msg_height;
+        if y < 0 {
+            break;
+        }
+        tcod.panel.set_default_foreground(colour);
+        tcod.panel.print_rect(MSG_X, y, MSG_WIDTH, 0, msg);
+    }
+
     // Blit the contents of `panel` to the root console
     blit(
         &tcod.panel,
@@ -727,7 +780,7 @@ fn move_by(id: usize, dx: i32, dy: i32, map: &Map, objects: &mut [Object]) {
 fn player_move_or_attack(
     dx: i32,
     dy: i32,
-    game: &Game,
+    game: &mut Game,
     objects: &mut [Object]
 ) {
     // The coordinates the player is moving to/attacking
@@ -749,7 +802,7 @@ fn player_move_or_attack(
                 target_id,
                 objects
             );
-            player.attack(target);
+            player.attack(target, game);
         },
         None => {
             move_by(PLAYER, dx, dy, &game.map, objects);
@@ -779,7 +832,7 @@ fn move_towards(
 fn ai_take_turn(
     monster_id: usize,
     tcod: &Tcod,
-    game: &Game,
+    game: &mut Game,
     objects: &mut [Object]
 ) {
     // A basic monster takes its turn. If you can see it, it can see you.
@@ -804,7 +857,7 @@ fn ai_take_turn(
                 PLAYER,
                 objects
             );
-            monster.attack(player);
+            monster.attack(player, game);
         }
     }
 }
@@ -827,19 +880,22 @@ fn mut_two<T>(
     }
 }
 
-fn player_death(player: &mut Object) {
+fn player_death(player: &mut Object, game: &mut Game) {
     // The game ended!
-    println!("You died!");
+    game.messages.add("You died!", RED);
 
     // For added effect, transform the player into a corpse!
     player.sprite = '%';
     player.colour = DARK_RED;
 }
 
-fn monster_death(monster: &mut Object) {
+fn monster_death(monster: &mut Object, game: &mut Game) {
     // Transform it into a nasty corpse!
     // It doesn't block, can't be attacked, and doesn't move
-    println!("{} is dead!", monster.name);
+    game.messages.add(
+        format!("{} is dead!", monster.name),
+        GREEN
+    );
     monster.sprite = '%';
     monster.colour = DARK_RED;
     monster.blocks = false;
