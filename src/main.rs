@@ -2,6 +2,7 @@ use std::cmp;
 use tcod::colors::*;
 use tcod::console::*;
 use rand::Rng;
+use tcod::map::{FovAlgorithm, Map as FovMap};
 
 // Actual size of the window
 const SCREEN_WIDTH: i32 = 80;
@@ -14,16 +15,23 @@ const MAP_WIDTH: i32 = 80;
 const MAP_HEIGHT: i32 = 45;
 
 const COLOUR_DARK_WALL: Color = Color { r: 0, g: 0, b: 100 };
+const COLOUR_LIGHT_WALL: Color = Color { r: 130, g: 110, b: 50 };
 const COLOUR_DARK_GROUND: Color = Color { r: 50, g: 50, b: 150 };
+const COLOUR_LIGHT_GROUND: Color = Color { r: 200, g: 180, b: 50 };
 
 // Parameters for dungeon generator
 const ROOM_MAX_SIZE: i32 = 10;
 const ROOM_MIN_SIZE: i32 = 6;
 const MAX_ROOMS: i32 = 30;
 
+const FOV_ALGO: FovAlgorithm = FovAlgorithm::Basic; // Default FOV algorithm
+const FOV_LIGHT_WALLS: bool = true; // Whether to light walls or not
+const TORCH_RADIUS: i32 = 10;
+
 struct Tcod {
     root: Root,
     con: Offscreen,
+    fov: FovMap,
 }
 
 /// This is a generic object: the player, a monster, an item, the stairs, etc…
@@ -131,11 +139,10 @@ fn main() {
         .title("RustyRogue")
         .init();
 
-    let con = Offscreen::new(MAP_WIDTH, MAP_HEIGHT);
-
     let mut tcod = Tcod {
         root,
-        con,
+        con: Offscreen::new(MAP_WIDTH, MAP_HEIGHT),
+        fov: FovMap::new(MAP_WIDTH, MAP_HEIGHT),
     };
 
     tcod::system::set_fps(LIMIT_FPS);
@@ -167,13 +174,32 @@ fn main() {
         map: make_map(&mut objects[0]),
     };
 
+    // Populate the FOV map, according to the generated map
+    for y in 0..MAP_HEIGHT {
+        for x in 0..MAP_WIDTH {
+            tcod.fov.set(
+                x,
+                y,
+                !game.map[x as usize][y as usize].block_sight,
+                !game.map[x as usize][y as usize].blocked,
+            );
+        }
+    }
+
+    // Force FOV "recompute" first time through game loop
+    let mut previous_player_position = (-1, -1);
+
     // The main game loop
     while !tcod.root.window_closed() {
         // Clear the screen of the previous frame
         tcod.con.clear();
 
         // Render the screen
-        render_all(&mut tcod, &game, &objects);
+        let fov_recompute = previous_player_position != (
+            objects[0].x,
+            objects[0].y
+        );
+        render_all(&mut tcod, &game, &objects, fov_recompute);
 
         tcod.root.flush();
         // Commenting the below code out, as it waits for keypresses twice
@@ -181,6 +207,7 @@ fn main() {
 
         // Handle keys and exit game if needed
         let player = &mut objects[0];
+        previous_player_position = (player.x, player.y);
         let exit = handle_keys(&mut tcod, &game, player);
         if exit {
             break;
@@ -289,31 +316,48 @@ fn make_map(player: &mut Object) -> Map {
     map
 }
 
-fn render_all(tcod: &mut Tcod, game: &Game, objects: &[Object]) {
+fn render_all(
+    tcod: &mut Tcod,
+    game: &Game,
+    objects: &[Object],
+    fov_recompute: bool,
+) {
+    if fov_recompute {
+        // Recompute FOV if needed (the player moved or an object updated)
+        let player = &objects[0];
+        tcod.fov.compute_fov(
+            player.x,
+            player.y,
+            TORCH_RADIUS,
+            FOV_LIGHT_WALLS,
+            FOV_ALGO
+        );
+    }
+
     // Draw all objects in the list
     for object in objects {
-        object.draw(&mut tcod.con);
+        if tcod.fov.is_in_fov(object.x, object.y) {
+            object.draw(&mut tcod.con);
+        }
     }
 
     // Go through all tiles, and set their background colour
     for y in 0..MAP_HEIGHT {
         for x in 0..MAP_WIDTH {
+            let visible = tcod.fov.is_in_fov(x, y);
             let wall = game.map[x as usize][y as usize].block_sight;
-            if wall {
-                tcod.con.set_char_background(
-                    x,
-                    y,
-                    COLOUR_DARK_WALL,
-                    BackgroundFlag::Set
-                );
-            } else {
-                tcod.con.set_char_background(
-                    x,
-                    y,
-                    COLOUR_DARK_GROUND,
-                    BackgroundFlag::Set
-                );
-            }
+            let colour = match (visible, wall) {
+                // Outside FOV:
+                (false, true) => COLOUR_DARK_WALL,
+                (false, false) => COLOUR_DARK_GROUND,
+                
+                // Inside FOV:
+                (true, true) => COLOUR_LIGHT_WALL,
+                (true, false) => COLOUR_LIGHT_GROUND,
+            };
+            tcod
+                .con
+                .set_char_background(x, y, colour, BackgroundFlag::Set);
         }
     }
 
