@@ -103,6 +103,44 @@ impl Object {
         let dy = other.y - self.y;
         ((dx.pow(2) + dy.pow(2)) as f32).sqrt()
     }
+
+    pub fn take_damage(&mut self, damage: i32) {
+        // Apply damage if possible
+        if let Some(fighter) = self.fighter.as_mut() {
+            // Checks for damage even though attack() does so because you might
+            // want an event, like poison or a trap, to directly damage an
+            // object by some amount, without going through the attack damage
+            // formula.
+            if damage > 0 {
+                fighter.hp -= damage;
+            }
+        }
+    }
+
+    pub fn attack(&mut self, target: &mut Object) {
+        // A simple formula for attack damage
+        let damage = self
+            .fighter
+            .map_or(0, |f| f.power) - target
+            .fighter
+            .map_or(0, |f| f.defence);
+        if damage > 0 {
+            // Make the target take some damage
+            println!(
+                "{} attacks {} for {} hit points!",
+                self.name,
+                target.name,
+                damage
+            );
+            target.take_damage(damage);
+        } else {
+            println!(
+                "{} tries to attack {} to no effect!",
+                self.name,
+                target.name
+            );
+        }
+    }
 }
 
 /// A tile of the map and its properties
@@ -502,6 +540,18 @@ fn render_all(
         1.0,
         1.0,
     );
+
+    // Show the player's stats
+    tcod.root.set_default_foreground(WHITE);
+    if let Some(fighter) = objects[PLAYER].fighter {
+        tcod.root.print_ex(
+            1,
+            SCREEN_HEIGHT - 2,
+            BackgroundFlag::None,
+            TextAlignment::Left,
+            format!("HP: {}/{}", fighter.hp, fighter.max_hp)
+        );
+    }
 }
 
 fn create_room(room: Rect, map: &mut Map) {
@@ -618,10 +668,12 @@ fn player_move_or_attack(
     // Attack if target is found, move otherwise
     match target_id {
         Some(target_id) => {
-            println!(
-                "The {} laughs at your puny efforts to attack them!",
-                objects[target_id].name
+            let (player, target) = mut_two(
+                PLAYER,
+                target_id,
+                objects
             );
+            player.attack(target);
         },
         None => {
             move_by(PLAYER, dx, dy, &game.map, objects);
@@ -671,11 +723,30 @@ fn ai_take_turn(
             .fighter
             .map_or(false, |f| f.hp > 0) {
             // Close enough, attack! (if the player is still alive)
-            let monster = &objects[monster_id];
-            println!(
-                "The attack of the {} bounces off your shiny metal armour!",
-                monster.name
+            let (monster, player) = mut_two(
+                monster_id,
+                PLAYER,
+                objects
             );
+            monster.attack(player);
         }
+    }
+}
+
+/// Mutably borrows two *separate* elements from a given slice.
+/// Panics when the indices are equal or out of bounds
+fn mut_two<T>(
+    first_index: usize,
+    second_index: usize,
+    items: &mut [T]
+) -> (&mut T, &mut T) {
+    assert!(first_index != second_index);
+    let split_at_index = cmp::max(first_index, second_index);
+    let (first_slice, second_slice) = items
+        .split_at_mut(split_at_index);
+    if first_index < second_index {
+        (&mut first_slice[first_index], &mut second_slice[0])
+    } else {
+        (&mut second_slice[0], &mut first_slice[second_index])
     }
 }
