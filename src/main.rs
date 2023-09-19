@@ -88,7 +88,7 @@ fn main() {
         .title("RustyRogue")
         .init();
 
-    let con = Offscreen::new(SCREEN_WIDTH, SCREEN_HEIGHT);
+    let con = Offscreen::new(MAP_WIDTH, MAP_HEIGHT);
 
     let mut tcod = Tcod {
         root,
@@ -97,8 +97,8 @@ fn main() {
 
     tcod::system::set_fps(LIMIT_FPS);
 
-    let mut centre_x = SCREEN_WIDTH / 2;
-    let mut centre_y = SCREEN_HEIGHT / 2;
+    let centre_x = SCREEN_WIDTH / 2;
+    let centre_y = SCREEN_HEIGHT / 2;
 
     // Create the object representing the player
     let player = Object::new(
@@ -119,23 +119,21 @@ fn main() {
     // The list of objects with those two
     let mut objects = [player, npc];
 
+    let game = Game {
+        // Generate map (at this point it's not drawn on the screen)
+        map: make_map(),
+    };
+
+    // The main game loop
     while !tcod.root.window_closed() {
         // Clear the screen of the previous frame
         tcod.con.clear();
 
-        // 'Blit' the contents of "con" to the root console and present it
-        // blit(
-        //     &tcod.con,
-        //     (0, 0),
-        //     (SCREEN_WIDTH, SCREEN_HEIGHT),
-        //     &mut tcod.root,
-        //     (0, 0),
-        //     1.0,
-        //     1.0,
-        // );
+        // Render the screen
+        render_all(&mut tcod, &game, &objects);
 
         tcod.root.flush();
-        // commenting the below code out, as it waits for keypresses twice
+        // Commenting the below code out, as it waits for keypresses twice
         // tcod.root.wait_for_keypress(true);
 
         // Handle keys and exit game if needed
@@ -217,4 +215,15 @@ fn render_all(tcod: &mut Tcod, game: &Game, objects: &[Object]) {
             }
         }
     }
+
+    // 'Blit' the contents of "con" to the root console and present it
+    blit(
+        &tcod.con,
+        (0, 0),
+        (MAP_WIDTH, MAP_HEIGHT),
+        &mut tcod.root,
+        (0, 0),
+        1.0,
+        1.0,
+    );
 }
