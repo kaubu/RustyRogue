@@ -1,5 +1,4 @@
 use std::cmp;
-use std::process::id;
 use tcod::colors;
 use tcod::colors::*;
 use tcod::console::*;
@@ -115,6 +114,14 @@ impl Object {
                 fighter.hp -= damage;
             }
         }
+
+        // Check for death, call the death function
+        if let Some(fighter) = self.fighter {
+            if fighter.hp <= 0 {
+                self.alive = false;
+                fighter.on_death.callback(self);
+            }
+        }
     }
 
     pub fn attack(&mut self, target: &mut Object) {
@@ -226,12 +233,30 @@ struct Fighter {
     hp: i32,
     defence: i32,
     power: i32,
+    on_death: DeathCallback,
 }
 
 /// Monster Artificial Intelligence
 #[derive(Clone, Debug, PartialEq)]
 enum Ai {
     Basic,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum DeathCallback {
+    Player,
+    Monster,
+}
+
+impl DeathCallback {
+    fn callback(self, object: &mut Object) {
+        use DeathCallback::*;
+        let callback: fn(&mut Object) = match self {
+            Player => player_death,
+            Monster => monster_death,
+        };
+        callback(object);
+    }
 }
 
 fn main() {
@@ -263,9 +288,13 @@ fn main() {
         true,
     );
     player.alive = true;
-    player.fighter = Some(
-        Fighter { max_hp: 30, hp: 30, defence: 2, power: 5 }
-    );
+    player.fighter = Some(Fighter {
+        max_hp: 30,
+        hp: 30,
+        defence: 2,
+        power: 5,
+        on_death: DeathCallback::Player,
+    });
 
     // Create an NPC
     let mut npc = Object::new(
@@ -488,8 +517,16 @@ fn render_all(
         );
     }
 
+    let mut to_draw: Vec<_> = objects
+        .iter()
+        .filter(|o| tcod.fov.is_in_fov(o.x, o.y))
+        .collect();
+    // Sort so that non-blocking objects come first
+    to_draw.sort_by(|o1, o2| {
+        o1.blocks.cmp(&o2.blocks)
+    });
     // Draw all objects in the list
-    for object in objects {
+    for object in &to_draw {
         if tcod.fov.is_in_fov(object.x, object.y) {
             object.draw(&mut tcod.con);
         }
@@ -601,9 +638,13 @@ fn place_objects(room: Rect, objects: &mut Vec<Object>, map: &Map) {
                     "Orc",
                     true
                 );
-                orc.fighter = Some(
-                    Fighter { max_hp: 10, hp: 10, defence: 0, power: 3 }
-                );
+                orc.fighter = Some(Fighter {
+                    max_hp: 10,
+                    hp: 10,
+                    defence: 0,
+                    power: 3,
+                    on_death: DeathCallback::Monster,
+                });
                 orc.ai = Some(Ai::Basic);
 
                 orc
@@ -617,9 +658,13 @@ fn place_objects(room: Rect, objects: &mut Vec<Object>, map: &Map) {
                     "Troll",
                     true
                 );
-                troll.fighter = Some(
-                    Fighter { max_hp: 16, hp: 16, defence: 1, power: 4 }
-                );
+                troll.fighter = Some(Fighter {
+                    max_hp: 16,
+                    hp: 16,
+                    defence: 1,
+                    power: 4,
+                    on_death: DeathCallback::Monster,
+                });
                 troll.ai = Some(Ai::Basic);
 
                 troll
@@ -661,8 +706,10 @@ fn player_move_or_attack(
     let y = objects[PLAYER].y + dy;
 
     // Try to find an attackable target there
-    let target_id = objects.iter().position(|object| {
-        object.pos() == (x, y)
+    let target_id = objects
+        .iter()
+        .position(|object| {
+        object.fighter.is_some() && object.pos() == (x, y)
     });
 
     // Attack if target is found, move otherwise
@@ -749,4 +796,25 @@ fn mut_two<T>(
     } else {
         (&mut second_slice[0], &mut first_slice[second_index])
     }
+}
+
+fn player_death(player: &mut Object) {
+    // The game ended!
+    println!("You died!");
+
+    // For added effect, transform the player into a corpse!
+    player.sprite = '%';
+    player.colour = DARK_RED;
+}
+
+fn monster_death(monster: &mut Object) {
+    // Transform it into a nasty corpse!
+    // It doesn't block, can't be attacked, and doesn't move
+    println!("{} is dead!", monster.name);
+    monster.sprite = '%';
+    monster.colour = DARK_RED;
+    monster.blocks = false;
+    monster.fighter = None;
+    monster.ai = None;
+    monster.name = format!("remains of {}", monster.name);
 }
