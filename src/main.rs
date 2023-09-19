@@ -7,6 +7,13 @@ const SCREEN_HEIGHT: i32 = 50;
 
 const LIMIT_FPS: i32 = 20;  // 20 frames-per-second maximum
 
+// Size of the map
+const MAP_WIDTH: i32 = 80;
+const MAP_HEIGHT: i32 = 45;
+
+const COLOUR_DARK_WALL: Color = Color { r: 0, g: 0, b: 100 };
+const COLOUR_DARK_GROUND: Color = Color { r: 50, g: 50, b: 150 };
+
 struct Tcod {
     root: Root,
     con: Offscreen,
@@ -15,6 +22,7 @@ struct Tcod {
 /// This is a generic object: the player, a monster, an item, the stairs, etc…
 /// 
 /// It's always represented by a char on screen.
+#[derive(Debug)]
 struct Object {
     x: i32,
     y: i32,
@@ -39,6 +47,37 @@ impl Object {
         con.set_default_foreground(self.colour);
         con.put_char(self.x, self.y, self.sprite, BackgroundFlag::None);
     }
+}
+
+/// A tile of the map and its properties
+#[derive(Clone, Copy, Debug)]
+struct Tile {
+    /// If the tile blocks anything from going through it
+    blocked: bool,
+    /// If the tile blocks the sight of things behind it
+    block_sight: bool,
+}
+
+impl Tile {
+    pub fn empty() -> Self {
+        Tile {
+            blocked: false,
+            block_sight: false,
+        }
+    }
+
+    pub fn wall() -> Self {
+        Tile {
+            blocked: true,
+            block_sight: true,
+        }
+    }
+}
+
+type Map = Vec<Vec<Tile>>;
+
+struct Game {
+    map: Map,
 }
 
 fn main() {
@@ -85,15 +124,15 @@ fn main() {
         tcod.con.clear();
 
         // 'Blit' the contents of "con" to the root console and present it
-        blit(
-            &tcod.con,
-            (0, 0),
-            (SCREEN_WIDTH, SCREEN_HEIGHT),
-            &mut tcod.root,
-            (0, 0),
-            1.0,
-            1.0,
-        );
+        // blit(
+        //     &tcod.con,
+        //     (0, 0),
+        //     (SCREEN_WIDTH, SCREEN_HEIGHT),
+        //     &mut tcod.root,
+        //     (0, 0),
+        //     1.0,
+        //     1.0,
+        // );
 
         tcod.root.flush();
         // commenting the below code out, as it waits for keypresses twice
@@ -136,4 +175,46 @@ fn handle_keys(tcod: &mut Tcod, player: &mut Object) -> bool {
     }
     
     false
+}
+
+fn make_map() -> Map {
+    // Fill map with "unblocked" tiles
+    let mut map = vec![
+        vec![Tile::empty(); MAP_HEIGHT as usize];
+        MAP_WIDTH as usize
+    ];
+
+    map[30][22] = Tile::wall();
+    map[50][22] = Tile::wall();
+
+    map
+}
+
+fn render_all(tcod: &mut Tcod, game: &Game, objects: &[Object]) {
+    // Draw all objects in the list
+    for object in objects {
+        object.draw(&mut tcod.con);
+    }
+
+    // Go through all tiles, and set their background colour
+    for y in 0..MAP_HEIGHT {
+        for x in 0..MAP_WIDTH {
+            let wall = game.map[x as usize][y as usize].block_sight;
+            if wall {
+                tcod.con.set_char_background(
+                    x,
+                    y,
+                    COLOUR_DARK_WALL,
+                    BackgroundFlag::Set
+                );
+            } else {
+                tcod.con.set_char_background(
+                    x,
+                    y,
+                    COLOUR_DARK_GROUND,
+                    BackgroundFlag::Set
+                );
+            }
+        }
+    }
 }
