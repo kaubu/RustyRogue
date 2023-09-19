@@ -3,6 +3,8 @@
         "blit",
         "colors",
         "Offscreen",
+        "Rect",
+        "RUSTTARGET",
         "tcod"
     ]
 }
