@@ -1,6 +1,8 @@
 {
     "cSpell.words": [
+        "blit",
         "colors",
+        "Offscreen",
         "tcod"
     ]
 }
