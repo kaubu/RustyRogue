@@ -54,6 +54,8 @@ struct Object {
     /// If the object blocks the character or not
     blocks: bool,
     alive: bool,
+    fighter: Option<Fighter>,
+    ai: Option<Ai>,
 }
 
 impl Object {
@@ -73,6 +75,8 @@ impl Object {
             name: name.into(),
             blocks,
             alive: false,
+            fighter: None,
+            ai: None,
         }
     }
 
@@ -169,6 +173,21 @@ enum PlayerAction {
     Exit,
 }
 
+/// Combat-related properties and methods (monster, player, NPC, etc)
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Fighter {
+    max_hp: i32,
+    hp: i32,
+    defence: i32,
+    power: i32,
+}
+
+/// Monster Artificial Intelligence
+#[derive(Clone, Debug, PartialEq)]
+enum Ai {
+    Basic,
+}
+
 fn main() {
     let root = Root::initializer()
         .font("arial10x10.png", FontLayout::Tcod)
@@ -198,6 +217,9 @@ fn main() {
         true,
     );
     player.alive = true;
+    player.fighter = Some(
+        Fighter { max_hp: 30, hp: 30, defence: 2, power: 5 }
+    );
 
     // Create an NPC
     let mut npc = Object::new(
@@ -514,24 +536,36 @@ fn place_objects(room: Rect, objects: &mut Vec<Object>, map: &Map) {
             // 80% chance of getting an Orc
             let mut monster = if rand::random::<f32>() < 0.8 {
                 // Create an Orc
-                Object::new(
+                let mut orc = Object::new(
                     x,
                     y,
                     'O',
                     colors::DESATURATED_GREEN,
                     "Orc",
                     true
-                )
+                );
+                orc.fighter = Some(
+                    Fighter { max_hp: 10, hp: 10, defence: 0, power: 3 }
+                );
+                orc.ai = Some(Ai::Basic);
+
+                orc
             } else {
                 // Create a Troll
-                Object::new(
+                let mut troll = Object::new(
                     x,
                     y,
                     'T',
                     colors::DARKER_GREEN,
                     "Troll",
                     true
-                )
+                );
+                troll.fighter = Some(
+                    Fighter { max_hp: 16, hp: 16, defence: 1, power: 4 }
+                );
+                troll.ai = Some(Ai::Basic);
+
+                troll
             };
 
             monster.alive = true;
