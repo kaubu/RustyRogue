@@ -24,7 +24,7 @@ jobs:
       - name: Update apt registry
         run: sudo apt update
       - name: Install dependencies
-        run: sudo apt install gcc g++ make libsdl2-dev
+        run: sudo apt install gcc g++ make libsdl2-dev libsdl2-2.0-0
       - name: Compile and release
         uses: rust-build/rust-build.action@v1.4.3
         env:
